@@ -73,7 +73,22 @@ namespace GW2Integration.Server.Controllers
                 }
             }
 
-            return gw2Achievements.Select(x => new Models.GOG.Achievement(x));
+            //Add placeholder images
+            var gogAchievements =  gw2Achievements.Select(x => new Models.GOG.Achievement(x)).ToList();
+            foreach (var gogAchievement in gogAchievements)
+            {
+                if (gogAchievement.ImageUrlUnlocked == null)
+                {
+                    gogAchievement.ImageUrlUnlocked = $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}{Constants.PlaceholderEarned}";
+                }
+
+                if (gogAchievement.ImageUrlLocked == null)
+                {
+                    gogAchievement.ImageUrlLocked = $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}{Constants.PlaceholderUnearned}";
+                }
+            }
+
+            return gogAchievements;
         }
     }
 }

@@ -21,10 +21,10 @@ namespace GW2Integration.Server.Models.GOG
         public string ApiKey { get; set; }
 
         [JsonProperty("image_url_unlocked")]
-        public string ImageUrlUnlocked { get; set; }
+        public string ImageUrlUnlocked { get; set; } = null;
 
         [JsonProperty("image_url_locked")]
-        public string ImageUrlLocked { get; set; }
+        public string ImageUrlLocked { get; set; } = null;
 
         public Achievement()
         {
