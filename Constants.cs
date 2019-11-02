@@ -10,6 +10,8 @@ namespace GW2Integration.Server
         public static string ApiPrefix { get; } = "https://api.guildwars2.com/v2";
 
         public static string ApiAchievements { get; } = ApiPrefix + "/achievements";
+        
+        public static string ApiAchievementCategories { get; } = ApiPrefix + "/achievements/categories";
 
         public static string PlaceholderEarned { get; } = "/assets/achievement-earned.png";
 

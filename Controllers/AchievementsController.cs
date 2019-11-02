@@ -21,60 +21,62 @@ namespace GW2Integration.Server.Controllers
     {
         private ILogger<AchievementsController> _logger { get; }
 
+        private int ConnectionLimit { get; } = 16;
+        private int ChunkSize { get; } = 150;
+
         private HttpClient _client { get; }= new HttpClient();
 
         public AchievementsController(ILogger<AchievementsController> logger)
         {
+            ServicePointManager.DefaultConnectionLimit = ConnectionLimit;
             _logger = logger;
         }
 
         [HttpGet]
         public async Task<IEnumerable<Models.GOG.Achievement>> Get()
         {
-            var gw2Achievements = new List<Models.GW2.Achievement>();
-            var idsList = new List<int>();
+            //get list of categories and achivements
+            var achievementIdsList = JsonConvert.DeserializeObject<List<long>>(await _client.GetStringAsync(Constants.ApiAchievements));
+            var categoryIdsList = JsonConvert.DeserializeObject<List<long>>(await _client.GetStringAsync(Constants.ApiAchievementCategories));
 
-            try
+
+            //get categories info
+            var categories = await Task.WhenAll(
+                categoryIdsList.Select(
+                    async categoryId => JsonConvert.DeserializeObject<Models.GW2.AchievementCategory>(await _client.GetStringAsync($"{Constants.ApiAchievementCategories}/{categoryId}"))
+                )
+            );
+
+            //get achievements info
+            var achievements = (await Task.WhenAll(achievementIdsList.ChunkBy(ChunkSize).Select(async achievementChunk =>
+                {
+                    var sb = new StringBuilder();
+                    sb.Append($"{Constants.ApiAchievements}?ids=");
+                    foreach (var id in achievementChunk)
+                    {
+                        sb.Append($"{id},");
+                    }
+
+                    return JsonConvert.DeserializeObject<Models.GW2.Achievement[]>(await _client.GetStringAsync(sb.ToString()));
+                })))
+                .SelectMany(x => x)
+                .Select(x => new KeyValuePair<long, Models.GW2.Achievement>(x.Id, x))
+                .ToDictionary(x=>x.Key, x=>x.Value);
+
+            //fill icons
+            foreach(var category in categories)
             {
-                var responseList = await _client.GetStringAsync(Constants.ApiAchievements);
-                idsList = JsonConvert.DeserializeObject<List<int>>(responseList);
-            }
-            catch (Exception ex)
-            {
-                _logger.Log(LogLevel.Error, ex.Message);
-                return new List<Models.GOG.Achievement>();
-            }
-
-
-            var chunkSize = 150;
-            foreach (var chunk in idsList.ChunkBy(chunkSize))
-            {
-                if (chunk.Count == 0)
+                foreach(var achievementId in category.Achievements)
                 {
-                    continue;
-                }
-
-                var sb = new StringBuilder();
-                sb.Append($"{Constants.ApiAchievements}?ids=");
-                foreach(var id in chunk)
-                {
-                    sb.Append($"{id},");
-                }
-
-                try
-                {
-                    var responseData = await _client.GetStringAsync(sb.ToString());
-                    var parsedResponse = JsonConvert.DeserializeObject<List<Models.GW2.Achievement>>(responseData);
-                    gw2Achievements.AddRange(parsedResponse);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Log(LogLevel.Error, ex.Message);
+                    if(string.IsNullOrEmpty(achievements[achievementId].Icon))
+                    {
+                        achievements[achievementId].Icon = category.Icon;
+                    }
                 }
             }
 
-            //Add placeholder images
-            var gogAchievements =  gw2Achievements.Select(x => new Models.GOG.Achievement(x)).ToList();
+            //transform to gog format
+            var gogAchievements = achievements.Select(x => new Models.GOG.Achievement(x.Value)).ToList();
             foreach (var gogAchievement in gogAchievements)
             {
                 if (gogAchievement.ImageUrlUnlocked == null)
