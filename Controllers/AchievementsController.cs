@@ -1,17 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
-using GW2Integration.Server.Extensions;
+
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 using Newtonsoft.Json;
+
+using GW2Integration.Server.Extensions;
 
 namespace GW2Integration.Server.Controllers
 {
@@ -20,20 +22,33 @@ namespace GW2Integration.Server.Controllers
     public class AchievementsController : ControllerBase
     {
         private ILogger<AchievementsController> _logger { get; }
+        private IMemoryCache _cache { get; }
 
         private int ConnectionLimit { get; } = 16;
         private int ChunkSize { get; } = 150;
 
-        private HttpClient _client { get; }= new HttpClient();
+        private HttpClient _client { get; } = new HttpClient();
 
-        public AchievementsController(ILogger<AchievementsController> logger)
+        public AchievementsController(ILogger<AchievementsController> logger, IMemoryCache memoryCache)
         {
             ServicePointManager.DefaultConnectionLimit = ConnectionLimit;
             _logger = logger;
+            _cache = memoryCache;
         }
 
         [HttpGet]
         public async Task<IEnumerable<Models.GOG.Achievement>> Get()
+        {
+            var cacheEntry = await _cache.GetOrCreateAsync("achievements_get", entry =>
+            {
+                entry.SetAbsoluteExpiration(TimeSpan.FromMinutes(10));
+                return getGogAchivementsList();
+            });
+
+            return cacheEntry;
+        }
+
+        private async Task<List<Models.GOG.Achievement>> getGogAchivementsList()
         {
             //get list of categories and achivements
             var achievementIdsList = JsonConvert.DeserializeObject<List<long>>(await _client.GetStringAsync(Constants.ApiAchievements));
@@ -49,26 +64,26 @@ namespace GW2Integration.Server.Controllers
 
             //get achievements info
             var achievements = (await Task.WhenAll(achievementIdsList.ChunkBy(ChunkSize).Select(async achievementChunk =>
+            {
+                var sb = new StringBuilder();
+                sb.Append($"{Constants.ApiAchievements}?ids=");
+                foreach (var id in achievementChunk)
                 {
-                    var sb = new StringBuilder();
-                    sb.Append($"{Constants.ApiAchievements}?ids=");
-                    foreach (var id in achievementChunk)
-                    {
-                        sb.Append($"{id},");
-                    }
+                    sb.Append($"{id},");
+                }
 
-                    return JsonConvert.DeserializeObject<Models.GW2.Achievement[]>(await _client.GetStringAsync(sb.ToString()));
-                })))
+                return JsonConvert.DeserializeObject<Models.GW2.Achievement[]>(await _client.GetStringAsync(sb.ToString()));
+            })))
                 .SelectMany(x => x)
                 .Select(x => new KeyValuePair<long, Models.GW2.Achievement>(x.Id, x))
-                .ToDictionary(x=>x.Key, x=>x.Value);
+                .ToDictionary(x => x.Key, x => x.Value);
 
             //fill icons
-            foreach(var category in categories)
+            foreach (var category in categories)
             {
-                foreach(var achievementId in category.Achievements)
+                foreach (var achievementId in category.Achievements)
                 {
-                    if(string.IsNullOrEmpty(achievements[achievementId].Icon))
+                    if (string.IsNullOrEmpty(achievements[achievementId].Icon))
                     {
                         achievements[achievementId].Icon = category.Icon;
                     }
@@ -91,6 +106,7 @@ namespace GW2Integration.Server.Controllers
             }
 
             return gogAchievements;
+
         }
     }
 }
