@@ -96,6 +96,8 @@ namespace GW2Integration.Server.Controllers
                 )
             );
 
+            
+
             //get achievements info
             var achievements = (await Task.WhenAll(achievementIdsList.ChunkBy(ChunkSize).Select(async achievementChunk =>
             {
@@ -106,7 +108,22 @@ namespace GW2Integration.Server.Controllers
                     sb.Append($"{id},");
                 }
 
-                return JsonConvert.DeserializeObject<Models.GW2.Achievement[]>(await _client.GetStringAsync(sb.ToString()));
+                string result = null;
+                bool repeat = true;
+                do
+                {
+                    try
+                    {
+                        result = await _client.GetStringAsync(sb.ToString());
+                        repeat = false;
+                    }
+                    catch (Exception)
+                    {
+                        repeat = true;
+                    }
+                } while (repeat);
+
+                return JsonConvert.DeserializeObject<Models.GW2.Achievement[]>(result);
             })))
                 .SelectMany(x => x)
                 .Select(x => new KeyValuePair<long, Models.GW2.Achievement>(x.Id, x))
