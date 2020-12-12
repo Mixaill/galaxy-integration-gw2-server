@@ -39,16 +39,50 @@ namespace GW2Integration.Server.Controllers
         [HttpGet]
         public async Task<IEnumerable<Models.GOG.Achievement>> Get()
         {
-            var cacheEntry = await _cache.GetOrCreateAsync("achievements_get", entry =>
+            var achievements = await _cache.GetOrCreateAsync("achivements_gw2_get", entry =>
             {
-                entry.SetAbsoluteExpiration(TimeSpan.FromMinutes(10));
-                return getGogAchivementsList();
+                entry.SetAbsoluteExpiration(TimeSpan.FromHours(11));
+                return getGW2AchievementsData();
             });
 
-            return cacheEntry;
+            //transform to gog format
+            var gogAchievements = achievements.Select(x => new Models.GOG.Achievement(x.Value)).ToList();
+            foreach (var gogAchievement in gogAchievements)
+            {
+                if (gogAchievement.ImageUrlUnlocked == null)
+                {
+                    gogAchievement.ImageUrlUnlocked = $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}{Constants.PlaceholderEarned}";
+                }
+
+                if (gogAchievement.ImageUrlLocked == null)
+                {
+                    gogAchievement.ImageUrlLocked = $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}{Constants.PlaceholderUnearned}";
+                }
+            }
+
+            return gogAchievements;
         }
 
-        private async Task<List<Models.GOG.Achievement>> getGogAchivementsList()
+        [Route("Short")]
+        [HttpGet]
+        public async Task<Dictionary<long, string>> GetShort()
+        {
+            var achievements = await _cache.GetOrCreateAsync("achivements_gw2_get", entry =>
+            {
+                entry.SetAbsoluteExpiration(TimeSpan.FromHours(11));
+                return getGW2AchievementsData();
+            });
+
+            var result = new Dictionary<long, string>();
+            foreach(var achievement in achievements)
+            {
+                result[achievement.Value.Id] = achievement.Value.Name;
+            }
+
+            return result;
+        }
+
+        private async Task<Dictionary<long, Models.GW2.Achievement>> getGW2AchievementsData()
         {
             //get list of categories and achivements
             var achievementIdsList = JsonConvert.DeserializeObject<List<long>>(await _client.GetStringAsync(Constants.ApiAchievements));
@@ -78,6 +112,7 @@ namespace GW2Integration.Server.Controllers
                 .Select(x => new KeyValuePair<long, Models.GW2.Achievement>(x.Id, x))
                 .ToDictionary(x => x.Key, x => x.Value);
 
+
             //fill icons
             foreach (var category in categories)
             {
@@ -90,23 +125,7 @@ namespace GW2Integration.Server.Controllers
                 }
             }
 
-            //transform to gog format
-            var gogAchievements = achievements.Select(x => new Models.GOG.Achievement(x.Value)).ToList();
-            foreach (var gogAchievement in gogAchievements)
-            {
-                if (gogAchievement.ImageUrlUnlocked == null)
-                {
-                    gogAchievement.ImageUrlUnlocked = $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}{Constants.PlaceholderEarned}";
-                }
-
-                if (gogAchievement.ImageUrlLocked == null)
-                {
-                    gogAchievement.ImageUrlLocked = $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}{Constants.PlaceholderUnearned}";
-                }
-            }
-
-            return gogAchievements;
-
+            return achievements;
         }
     }
 }
